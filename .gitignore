@@ -1,0 +1,62 @@
+# OS, editor, and download metadata
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini
+*:Zone.Identifier*
+*Zone.Identifier*
+
+# Python cache and packaging artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+build/
+dist/
+*.egg-info/
+
+# Local environments and secrets
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+env/
+ENV/
+
+# Logs
+logs/
+*.log
+
+# Data, models, and experiment artifacts
+data/
+code/runs/
+code/checkpoints/
+runs/
+checkpoints/
+outputs/
+output/
+results/
+wandb/
+mlruns/
+tensorboard/
+*.pt
+*.pth
+*.pth.tar
+*.ckpt
+*.npy
+*.npz
+
+# Native build artifacts
+*.so
+*.o
+*.dll
+*.dylib
+rec_code/sources/.rendered.*
+
+# Large local documents
+*.pdf
