@@ -22,10 +22,13 @@ def BPR_train_original(dataset, recommend_model, loss_class, epoch, neg_k=1, w=N
     bpr: utils.BPRLoss = loss_class
     
     with timer(name="Sample"):
-        S = utils.UniformSample_original(dataset)
+        S = utils.UniformSample_original(dataset, neg_ratio=neg_k)
     users = torch.Tensor(S[:, 0]).long()
     posItems = torch.Tensor(S[:, 1]).long()
-    negItems = torch.Tensor(S[:, 2]).long()
+    if neg_k > 1:
+        negItems = torch.Tensor(S[:, 2:]).long()
+    else:
+        negItems = torch.Tensor(S[:, 2]).long()
 
     users = users.to(world.device)
     posItems = posItems.to(world.device)
@@ -42,7 +45,7 @@ def BPR_train_original(dataset, recommend_model, loss_class, epoch, neg_k=1, w=N
                                                    posItems,
                                                    negItems,
                                                    batch_size=world.config['bpr_batch_size'])):
-        cri = bpr.stageOne(batch_users, batch_pos, batch_neg)
+        cri = bpr.stageOne(batch_users, batch_pos, batch_neg, epoch=epoch)
         aver_loss += cri
         if world.tensorboard:
             w.add_scalar(f'BPRLoss/BPR', cri, epoch * int(len(users) / world.config['bpr_batch_size']) + batch_i)

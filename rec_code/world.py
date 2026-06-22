@@ -42,6 +42,31 @@ config['neighbor_k'] = args.neighbor_k
 config['dropout_i'] = args.dropout_i
 config['dropout_u'] = args.dropout_u
 config['dropout_n'] = args.dropout_n
+config['use_semantic_gate'] = args.use_semantic_gate
+config['layer_cl_reg'] = args.layer_cl_reg
+config['layer_cl_temp'] = args.layer_cl_temp
+config['semantic_cl_reg'] = args.semantic_cl_reg
+config['semantic_cl_temp'] = args.semantic_cl_temp
+config['sccf_reg'] = args.sccf_reg
+config['sccf_temp'] = args.sccf_temp
+config['use_layer_weight'] = args.use_layer_weight
+config['use_item_bias'] = args.use_item_bias
+config['neg_k'] = max(1, args.neg_k)
+config['multi_neg_loss'] = args.multi_neg_loss
+config['multi_neg_tau'] = args.multi_neg_tau
+config['use_social_graph'] = args.use_social_graph
+config['social_alpha'] = args.social_alpha
+config['use_itemknn_score'] = args.use_itemknn_score
+config['itemknn_alpha'] = args.itemknn_alpha
+config['itemknn_train_alpha'] = args.itemknn_alpha if args.itemknn_train_alpha is None else args.itemknn_train_alpha
+config['itemknn_k'] = args.itemknn_k
+config['use_item_graph_prop'] = args.use_item_graph_prop
+config['item_graph_alpha'] = args.item_graph_alpha
+config['use_neighbor_cf_prior'] = args.use_neighbor_cf_prior
+config['neighbor_cf_alpha'] = args.neighbor_cf_alpha
+config['use_ema'] = args.use_ema
+config['ema_decay'] = args.ema_decay
+config['ema_start_epoch'] = args.ema_start_epoch
 
 
 GPU = torch.cuda.is_available()
@@ -61,6 +86,8 @@ user_semantic_emb_file = args.user_semantic_emb_file
 
 
 TRAIN_epochs = args.epochs
+EVAL_FREQ = max(1, args.eval_freq)
+checkpoint_tag = args.checkpoint_tag
 LOAD = args.load
 PATH = args.path
 topks = eval(args.topks)

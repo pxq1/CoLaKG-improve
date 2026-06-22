@@ -43,7 +43,7 @@ if world.LOAD:
         world.cprint(f"loaded model weights from {weight_file}")
     except FileNotFoundError:
         print(f"{weight_file} not exists, start from beginning")
-Neg_k = 1
+Neg_k = world.config['neg_k']
 
 # init tensorboard
 if world.tensorboard:
@@ -124,11 +124,17 @@ try:
     for epoch in range(world.TRAIN_epochs):
         start = time.time()
         
-        if epoch % 5 == 0:
+        if epoch % world.EVAL_FREQ == 0:
             cprint("[TEST]")
-            test_results = Procedure.Test(dataset, Recmodel, epoch, w, world.config['multicore'])
+            using_ema = bpr.apply_ema_shadow() if world.config['use_ema'] else False
+            try:
+                test_results = Procedure.Test(dataset, Recmodel, epoch, w, world.config['multicore'])
+            finally:
+                if using_ema:
+                    bpr.restore_model()
             update_best_test_records(test_results, epoch + 1)
-            log_message = f'TEST RESULTS at EPOCH[{epoch+1}/{world.TRAIN_epochs}]: {test_results}'
+            ema_suffix = " [EMA]" if using_ema else ""
+            log_message = f'TEST RESULTS at EPOCH[{epoch+1}/{world.TRAIN_epochs}]{ema_suffix}: {test_results}'
             print(log_message)
             with open(log_file, "a") as f:
                 f.write(log_message + "\n")

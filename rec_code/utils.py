@@ -31,8 +31,51 @@ class BPRLoss:
         self.weight_decay = config['decay']
         self.lr = config['lr']
         self.opt = optim.Adam(recmodel.parameters(), lr=self.lr)
+        self.use_ema = bool(config.get('use_ema', 0))
+        self.ema_decay = config.get('ema_decay', 0.995)
+        self.ema_start_epoch = config.get('ema_start_epoch', 400)
+        self.ema_shadow = {}
+        self.ema_backup = {}
 
-    def stageOne(self, users, pos, neg):
+    def _init_ema(self):
+        if self.ema_shadow:
+            return
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                self.ema_shadow[name] = param.detach().clone()
+
+    @property
+    def ema_ready(self):
+        return bool(self.ema_shadow)
+
+    def _update_ema(self):
+        self._init_ema()
+        with torch.no_grad():
+            for name, param in self.model.named_parameters():
+                if param.requires_grad:
+                    self.ema_shadow[name].mul_(self.ema_decay).add_(param.detach(), alpha=1.0 - self.ema_decay)
+
+    def apply_ema_shadow(self):
+        if not self.ema_shadow:
+            return False
+        self.ema_backup = {}
+        with torch.no_grad():
+            for name, param in self.model.named_parameters():
+                if name in self.ema_shadow:
+                    self.ema_backup[name] = param.detach().clone()
+                    param.copy_(self.ema_shadow[name])
+        return True
+
+    def restore_model(self):
+        if not self.ema_backup:
+            return
+        with torch.no_grad():
+            for name, param in self.model.named_parameters():
+                if name in self.ema_backup:
+                    param.copy_(self.ema_backup[name])
+        self.ema_backup = {}
+
+    def stageOne(self, users, pos, neg, epoch=0):
         loss, reg_loss = self.model.bpr_loss(users, pos, neg)
         reg_loss = reg_loss*self.weight_decay
         loss = loss + reg_loss
@@ -40,6 +83,8 @@ class BPRLoss:
         self.opt.zero_grad()
         loss.backward()
         self.opt.step()
+        if self.use_ema and epoch + 1 >= self.ema_start_epoch:
+            self._update_ema()
 
         return loss.cpu().item()
 
@@ -106,6 +151,13 @@ def getFileName():
         file = f"lgn-{world.dataset}-{world.config['lightGCN_n_layers']}-{world.config['latent_dim_rec']}.pth.tar"
     elif world.model_name == 'colakg':
         file = f"colakg-{world.dataset}-{world.config['lightGCN_n_layers']}-{world.config['latent_dim_rec']}.pth.tar"
+    if world.checkpoint_tag:
+        stem, ext = os.path.splitext(file)
+        if stem.endswith('.pth'):
+            stem, second_ext = os.path.splitext(stem)
+            ext = second_ext + ext
+        safe_tag = ''.join(ch if ch.isalnum() or ch in ['-', '_'] else '_' for ch in world.checkpoint_tag)
+        file = f"{stem}-{safe_tag}{ext}"
     return os.path.join(world.FILE_PATH,file)
 
 def minibatch(*tensors, **kwargs):

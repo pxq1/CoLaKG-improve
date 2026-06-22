@@ -268,6 +268,8 @@ class Loader(BasicDataset):
         self.testItem = np.array(testItem)
         
         self.Graph = None
+        self.SocialGraph = None
+        self.ItemKnnScores = {}
         print(f"{self.trainDataSize} interactions for training")
         print(f"{self.testDataSize} interactions for testing")
         print(f"{world.dataset} Sparsity : {(self.trainDataSize + self.testDataSize) / self.n_users / self.m_items}")
@@ -354,14 +356,88 @@ class Loader(BasicDataset):
                 print(f"costing {end-s}s, saved norm_mat...")
                 sp.save_npz(self.path + '/s_pre_adj_mat.npz', norm_adj)
 
-            if self.split == True:
-                self.Graph = self._split_A_hat(norm_adj)
-                print("done split matrix")
-            else:
-                self.Graph = self._convert_sp_mat_to_sp_tensor(norm_adj)
-                self.Graph = self.Graph.coalesce().to(world.device)
-                print("don't split the matrix")
+        if self.split == True:
+            self.Graph = self._split_A_hat(norm_adj)
+            print("done split matrix")
+        else:
+            self.Graph = self._convert_sp_mat_to_sp_tensor(norm_adj)
+            self.Graph = self.Graph.coalesce().to(world.device)
+            print("don't split the matrix")
         return self.Graph
+
+    def getSocialGraph(self):
+        if self.SocialGraph is not None:
+            return self.SocialGraph
+        if world.dataset != 'lastfm':
+            return None
+
+        user_map_file = join(self.path, 'user_map.txt')
+        user_friends_file = join(self.path, 'user_friends.dat')
+        if not os.path.exists(user_map_file) or not os.path.exists(user_friends_file):
+            return None
+
+        raw_to_inner = {}
+        with open(user_map_file) as f:
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) >= 2:
+                    raw_to_inner[int(parts[0])] = int(parts[1])
+
+        friends = pd.read_table(user_friends_file)
+        rows, cols = [], []
+        for raw_user, raw_friend in friends[['userID', 'friendID']].itertuples(index=False):
+            if raw_user in raw_to_inner and raw_friend in raw_to_inner:
+                user = raw_to_inner[int(raw_user)]
+                friend = raw_to_inner[int(raw_friend)]
+                if user < self.n_users and friend < self.n_users and user != friend:
+                    rows.extend([user, friend])
+                    cols.extend([friend, user])
+
+        if not rows:
+            return None
+
+        social = sp.coo_matrix(
+            (np.ones(len(rows), dtype=np.float32), (rows, cols)),
+            shape=(self.n_users, self.n_users),
+        ).tocsr()
+        social.data = np.ones_like(social.data, dtype=np.float32)
+        degree = np.array(social.sum(axis=1)).squeeze()
+        degree[degree == 0.] = 1.
+        d_inv_sqrt = np.power(degree, -0.5)
+        d_mat = sp.diags(d_inv_sqrt)
+        norm_social = d_mat.dot(social).dot(d_mat).tocsr()
+        self.SocialGraph = self._convert_sp_mat_to_sp_tensor(norm_social).coalesce().to(world.device)
+        print(f"loaded LastFM social graph with {self.SocialGraph._nnz()} edges")
+        return self.SocialGraph
+
+    def getItemKnnScores(self, topk=200):
+        topk = int(topk)
+        if topk in self.ItemKnnScores:
+            return self.ItemKnnScores[topk]
+
+        item_degree = np.array(self.UserItemNet.sum(axis=0)).squeeze().astype(np.float32)
+        item_degree[item_degree == 0.] = 1.
+        co_mat = (self.UserItemNet.T @ self.UserItemNet).astype(np.float32).tolil()
+        co_mat.setdiag(0)
+        co_mat = co_mat.tocsr()
+        d_inv_sqrt = sp.diags(np.power(item_degree, -0.5))
+        item_sim = (d_inv_sqrt @ co_mat @ d_inv_sqrt).tolil()
+        for item in range(self.m_items):
+            data = item_sim.data[item]
+            if len(data) > topk:
+                keep_idx = np.argpartition(data, -topk)[-topk:]
+                rows = item_sim.rows[item]
+                item_sim.rows[item] = [rows[i] for i in keep_idx]
+                item_sim.data[item] = [data[i] for i in keep_idx]
+
+        item_sim = item_sim.tocsr()
+        scores = (self.UserItemNet @ item_sim).astype(np.float32).toarray()
+        row_max = np.max(scores, axis=1, keepdims=True)
+        row_max[row_max == 0.] = 1.
+        scores = scores / row_max
+        self.ItemKnnScores[topk] = torch.FloatTensor(scores).to(world.device)
+        print(f"built item-item KNN residual scores with topk={topk}")
+        return self.ItemKnnScores[topk]
 
     def __build_test(self):
         """
